@@ -127,6 +127,7 @@ public class SegmentIDGenImpl implements IDGen {
         }
         if (cache.containsKey(key)) {
             SegmentBuffer buffer = cache.get(key);
+            //双重检查
             if (!buffer.isInitOk()) {
                 synchronized (buffer) {
                     if (!buffer.isInitOk()) {
@@ -161,6 +162,10 @@ public class SegmentIDGenImpl implements IDGen {
         } else {
             long duration = System.currentTimeMillis() - buffer.getUpdateTimestamp();
             int nextStep = buffer.getStep();
+            //fixme step的动态调整在这里进行
+            //在 SEGMENT_DURATION 时间内就用完说明消耗的特别快，这个时候就需要把step扩大，以避免消耗过快
+            //如果在2 * SEGMENT_DURATION时间内消耗完，则认为消耗速度一般，不做处理
+            //如果消耗的速度更慢，则缩小step大小，以避免在机器上存储过多的号段字段，避免浪费
             if (duration < SEGMENT_DURATION) {
                 if (nextStep * 2 > MAX_STEP) {
                     //do nothing
@@ -179,6 +184,7 @@ public class SegmentIDGenImpl implements IDGen {
             leafAlloc = dao.updateMaxIdByCustomStepAndGetLeafAlloc(temp);
             buffer.setUpdateTimestamp(System.currentTimeMillis());
             buffer.setStep(nextStep);
+            //这个set的是之前的step
             buffer.setMinStep(leafAlloc.getStep());//leafAlloc的step为DB中的step
         }
         // must set value before set max
@@ -194,6 +200,8 @@ public class SegmentIDGenImpl implements IDGen {
             buffer.rLock().lock();
             try {
                 final Segment segment = buffer.getCurrent();
+                //三个条件同时满足的情况下执行另一个buffer加载的处理,另一个状态未处于准备完成状态,号段使用率超过百分之十,还有就是加载号段的线程未处于执行态
+                //buffer.getThreadRunning().compareAndSet(false, true) 通过CAS来保证只有一个线程去执行reload新号段的操作
                 if (!buffer.isNextReady() && (segment.getIdle() < 0.9 * segment.getStep()) && buffer.getThreadRunning().compareAndSet(false, true)) {
                     service.execute(new Runnable() {
                         @Override
@@ -220,13 +228,17 @@ public class SegmentIDGenImpl implements IDGen {
                     });
                 }
                 long value = segment.getValue().getAndIncrement();
+                //如果当前号段没有用完，则直接返回
                 if (value < segment.getMax()) {
                     return new Result(value, Status.SUCCESS);
                 }
             } finally {
                 buffer.rLock().unlock();
             }
+            //之所以加上这一步,是因为当号段已经用完的时候，必须等待上一步新的号段load进来，这个时候才能继续获取新的唯一号
+            //阻塞并等待上一步 updateSegmentFromDb 的完成
             waitAndSleep(buffer);
+            //
             buffer.wLock().lock();
             try {
                 final Segment segment = buffer.getCurrent();

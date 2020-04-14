@@ -19,6 +19,7 @@ public class SegmentBuffer {
     private final ReadWriteLock lock;
 
     private volatile int step;
+    //预置的step,不会改变,也是最小的step
     private volatile int minStep;
     private volatile long updateTimestamp;
 

@@ -110,4 +110,9 @@ public class SnowflakeIDGenImpl implements IDGen {
         return workerId;
     }
 
+    public static void main(String[] args) {
+        int i = 5 << 1;
+        System.out.println(i);
+    }
+
 }
