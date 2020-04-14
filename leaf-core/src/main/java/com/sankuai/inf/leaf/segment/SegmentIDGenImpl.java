@@ -194,7 +194,7 @@ public class SegmentIDGenImpl implements IDGen {
         segment.setStep(buffer.getStep());
         sw.stop("updateSegmentFromDb", key + " " + segment);
     }
-
+    //读写锁互斥，只要有线程持有读锁，那么其他的线程就不能获取写锁,写写锁也互斥,读读锁不互斥
     public Result getIdFromSegmentBuffer(final SegmentBuffer buffer) {
         while (true) {
             buffer.rLock().lock();
